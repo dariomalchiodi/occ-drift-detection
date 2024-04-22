@@ -28,7 +28,8 @@ def set_random_seed(seed):
 def_classifier = GridSearchCV(RandomForestClassifier(),
                               {'n_estimators': [5, 10, 20, 50, 100],
                                'max_depth': [10, 20, None],
-                               'max_features': ['sqrt', None]})
+                               'max_features': ['sqrt', None]},
+                               cv=2)
 
 defaults = {'window_size': 250,
             'p_value_threshold': 0.01,
@@ -199,7 +200,8 @@ def evaluate_method(dataset_name, X, y, method_name, method):
                                 {'n_estimators': [5, 10, 20, 50, 100],
                                 'max_depth': [10, 20, None],
                                 'max_features': ['sqrt', None],
-                                'n_jobs': [-1]})
+                                'n_jobs': [-1]},
+                                cv=2)
         results.append(method(X, y, classifier=classifier))
 
     num_drift = [r['num_drift'] for r in results]

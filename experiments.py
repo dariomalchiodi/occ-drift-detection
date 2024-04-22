@@ -194,7 +194,7 @@ def evaluate_method(dataset_name, X, y, method_name, method):
 
     results = []
 
-    for seed in SEEDS:
+    for seed in tqdm(SEEDS):
         set_random_seed(seed)
         classifier = GridSearchCV(RandomForestClassifier(random_state=seed),
                                 {'n_estimators': [5, 10, 20, 50, 100],

@@ -228,7 +228,8 @@ def analyze_dataset(data_name, data_path):
     methods = [scored_drift_train, hybrid_drift_train, binary_drift_train]
 
     return [evaluate_method(data_name, X, y, method_name, method)
-            for method_name, method in tqdm(zip(method_names, methods))]
+            for method_name, method in tqdm(zip(method_names, methods),
+                                            total=len(methods))]
 
 def run_experiment(path, name):
     """Run a batch of experiments for all datasets in a directory."""

@@ -1,7 +1,9 @@
 """Experiments for scored-based drift detection"""
 
+import argparse
 import json
 import os
+from pathlib import Path
 import random
 
 import numpy as np
@@ -23,13 +25,22 @@ def set_random_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
 
+def clean_dataset(X, y, cv=2):
+    y = pd.Series(y)
+    target_freq = y.value_counts()
+    invalid_targets = [i for i, f in target_freq.items() if f<cv]
+    X = X[~y.isin(invalid_targets)]
+    y = y[~y.isin(invalid_targets)]
+    return X, y
+
 # use scored occ drift detection, analyze one element at a time
 
 def_classifier = GridSearchCV(RandomForestClassifier(),
                               {'n_estimators': [5, 10, 20, 50, 100],
                                'max_depth': [10, 20, None],
                                'max_features': ['sqrt', None]},
-                               cv=2)
+                               cv=2,
+                               n_jobs=-1)
 
 defaults = {'window_size': 250,
             'p_value_threshold': 0.01,
@@ -53,6 +64,7 @@ def scored_drift_train(X, y,
 
     X_train = X.iloc[:window_size].values
     y_train = y.iloc[:window_size].values
+    X_train, y_train = clean_dataset(X_train, y_train)
     drift_detector.fit(X_train)
     classifier.fit(X_train, y_train)
     nodrift_sample = drift_detector.predict(X_train, scored=use_score)
@@ -88,6 +100,7 @@ def scored_drift_train(X, y,
                 new_size = int(window_size * (1 - keep_fraction))
                 X_curr = np.vstack([X_curr[new_size:], [x_new]])
                 y_curr = np.hstack([y_curr[new_size:], [y_new]])
+                X_curr, y_curr = clean_dataset(X_curr, y_curr)
                 drift_detector.fit(X_curr)
                 classifier.fit(X_curr, y_curr)
                 nodrift_sample = drift_detector.predict(X_curr,
@@ -138,6 +151,7 @@ def binary_drift_train(X, y,
     drift_detector = SVOCC(c=c)
     X_train = X.iloc[:window_size].values
     y_train = y.iloc[:window_size].values
+    X_train, y_train = clean_dataset(X_train, y_train)
     drift_detector.fit(X_train)
     classifier.fit(X_train, y_train)
     outlier_pred = drift_detector.predict(X_train)
@@ -172,6 +186,7 @@ def binary_drift_train(X, y,
                 new_size = int(window_size * (1 - outlier_freq_threshold))
                 X_curr = np.vstack([X_curr[new_size:], [x_new]])
                 y_curr = np.hstack([y_curr[new_size:], [y_new]])
+                X_curr, y_curr = clean_dataset(X_curr, y_curr)
                 drift_detector.fit(X_curr)
                 classifier.fit(X_curr, y_curr)
                 outlier_pred = np.hstack([outlier_pred[new_size:],
@@ -199,9 +214,9 @@ def evaluate_method(dataset_name, X, y, method_name, method):
         classifier = GridSearchCV(RandomForestClassifier(random_state=seed),
                                 {'n_estimators': [5, 10, 20, 50, 100],
                                 'max_depth': [10, 20, None],
-                                'max_features': ['sqrt', None],
-                                'n_jobs': [-1]},
-                                cv=2)
+                                'max_features': ['sqrt', None]},
+                                cv=2,
+                                n_jobs=-1)
         results.append(method(X, y, classifier=classifier))
 
     num_drift = [r['num_drift'] for r in results]
@@ -231,18 +246,34 @@ def analyze_dataset(data_name, data_path):
             for method_name, method in tqdm(zip(method_names, methods),
                                             total=len(methods))]
 
-def run_experiment(path, name):
-    """Run a batch of experiments for all datasets in a directory."""
+# def run_experiment(path, name):
+#     """Run a batch of experiments for all datasets in a directory."""
 
-    result = []
-    for file in tqdm(os.listdir(path)):
-        data_name = file[:-4]
-        data_path = path + file
-        result.extend(analyze_dataset(data_name, data_path))
+#     result = []
+#     for file in tqdm(os.listdir(path)):
+#         data_name = file[:-4]
+#         data_path = path + file
+#         result.extend(analyze_dataset(data_name, data_path))
 
-    with open(f'result-{name}.json', 'w', encoding='utf-8') as f:
-        json.dump(result, f)
+#     with open(f'result-{name}.json', 'w', encoding='utf-8') as f:
+#         json.dump(result, f)
 
 if __name__ == '__main__':
-    for category in ['real-world', 'artificial']:
-        run_experiment(f'data/{category}/', category)
+
+    parser = argparse.ArgumentParser(description='process arguments')
+    parser.add_argument('dataset')
+    parser.add_argument('-o', dest='output', default='.')
+
+    args = parser.parse_args()
+    dataset = args.dataset
+    output_dir = Path(args.output)
+
+    name = dataset[dataset.rfind('/')+1:-4]
+
+    output_file = output_dir / Path(name + '.json')
+    if os.path.exists(output_file):
+        print(f'{output_file} already exists: skipping.')
+    else:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(analyze_dataset(name, dataset), f)
+

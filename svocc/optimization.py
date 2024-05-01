@@ -77,7 +77,7 @@ class GurobiSolver(Solver):
     """
 
     default_values = {"time_limit": 10 * 60,
-                      "adjustment": 0,
+                      "adjustment": 'auto',
                       "initial_values": None}
 
     def __init__(self, time_limit=default_values['time_limit'],

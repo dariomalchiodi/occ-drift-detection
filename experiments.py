@@ -20,6 +20,7 @@ from sklearn.model_selection import GridSearchCV
 from svocc import SVOCC
 from svocc.kernel import GaussianKernel
 
+
 SEED = 3759914
 TestResult = namedtuple('TestResult', ['stat', 'pvalue'])
 
@@ -58,7 +59,7 @@ defaults = {'window_size': 250,
             'outlier_freq_threshold': 0.3}
 
 # pylint: disable-next=invalid-name
-def scored_drift_train(X, y,
+def scored_drift_train(X, y, pbar,
                        window_size=defaults['window_size'],
                        p_value_threshold=defaults['p_value_threshold'],
                        keep_fraction=defaults['outlier_freq_threshold'],
@@ -107,10 +108,9 @@ def scored_drift_train(X, y,
     y_curr_expanded = np.expand_dims(y_curr, axis=1)
     Xy_curr = np.hstack([X_curr, y_curr_expanded])
 
-    stream_len = len(y.iloc[window_size:])
-    for x_new, y_new in tqdm(zip(X.iloc[window_size:].values,
-                                 y.iloc[window_size:].values),
-                             total=stream_len):
+    for x_new, y_new in zip(X.iloc[window_size:].values,
+                            y.iloc[window_size:].values):
+        pbar.update()
         predictions.append(classifier.predict([x_new]))
         targets.append(y_new)
         xy_new = np.hstack([x_new, [y_new]])
@@ -198,7 +198,7 @@ def scored_drift_train(X, y,
             'accuracy': acc}
 
 # pylint: disable-next=invalid-name
-def hybrid_drift_train(X, y,
+def hybrid_drift_train(X, y, pbar,
                        window_size=defaults['window_size'],
                        p_value_threshold=defaults['p_value_threshold'],
                        keep_fraction=defaults['outlier_freq_threshold'],
@@ -207,7 +207,7 @@ def hybrid_drift_train(X, y,
                        verbose=False):
     """Run the hybrid scored-based one-class drift detection experiment."""
 
-    return scored_drift_train(X, y,
+    return scored_drift_train(X, y, pbar,
                        window_size=window_size,
                        p_value_threshold=p_value_threshold,
                        keep_fraction=keep_fraction,
@@ -219,7 +219,7 @@ def hybrid_drift_train(X, y,
 
 # use binary occ drift detection, analyze one element at a time
 
-def binary_drift_train(X, y,
+def binary_drift_train(X, y, pbar,
                        window_size=defaults['window_size'],
                        outlier_freq_threshold=defaults['outlier_freq_threshold'],
                        c=defaults['c'],
@@ -245,6 +245,7 @@ def binary_drift_train(X, y,
 
     for x_new, y_new in zip(X.iloc[window_size:].values,
                             y.iloc[window_size:].values):
+        pbar.update()
         predictions.append(classifier.predict([x_new]))
         targets.append(y_new)
         if len(X_curr) < window_size:
@@ -286,11 +287,11 @@ def binary_drift_train(X, y,
             'accuracy': acc}
 
 # pylint: disable-next=invalid-name
-def evaluate_method(dataset_name, X, y, method_name, method):
+def evaluate_method(dataset_name, X, y, method_name, method, pbar):
     """Evaluate the performance of a specific drift detection method
     on a dataset."""
 
-    result = method(X, y)
+    result = method(X, y, pbar)
 
     result = {'dataset': dataset_name,
               'method': method_name,
@@ -309,12 +310,15 @@ def analyze_dataset(data_name, data_path):
     X = df.drop(['target'], axis=1)
     y = df['target']
 
+    pbar = tqdm(total=(3 * (len(y) - defaults['window_size'])))
+
     method_names = ['SDD', 'HDD', 'BDD']
     methods = [scored_drift_train, hybrid_drift_train, binary_drift_train]
 
-    return [evaluate_method(data_name, X, y, method_name, method)
-            for method_name, method in tqdm(zip(method_names, methods),
-                                            total=len(methods))]
+    result = [evaluate_method(data_name, X, y, method_name, method, pbar)
+              for method_name, method in zip(method_names, methods)]
+    pbar.close()
+    return result
 
 if __name__ == '__main__':
 

@@ -1,6 +1,7 @@
 """Experiments for scored-based drift detection"""
 
 import argparse
+from collections import namedtuple
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import random
 import numpy as np
 import pandas as pd
 from scipy.stats import mannwhitneyu
+from statsmodels.stats import weightstats
 from tqdm import tqdm
 
 from sklearn.ensemble import RandomForestClassifier
@@ -16,8 +18,10 @@ import sklearn.metrics as metrics
 from sklearn.model_selection import GridSearchCV
 
 from svocc import SVOCC
+from svocc.kernel import GaussianKernel
 
-SEEDS = [12345, 54321, 67890, 98760, 34567]
+SEED = 3759914
+TestResult = namedtuple('TestResult', ['stat', 'pvalue'])
 
 def set_random_seed(seed):
     """Set the system and numpy random seed."""
@@ -25,7 +29,14 @@ def set_random_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
 
+def ztest(x1, x2):
+    """Adapter for the Z test returning a named tuple."""
+    return TestResult(*weightstats.ztest(x1, x2))
+
+
+# pylint: disable-next=invalid-name
 def clean_dataset(X, y, cv=2):
+    """Remove cases from dataset having less than two examples."""
     y = pd.Series(y)
     target_freq = y.value_counts()
     invalid_targets = [i for i, f in target_freq.items() if f<cv]
@@ -33,9 +44,7 @@ def clean_dataset(X, y, cv=2):
     y = y[~y.isin(invalid_targets)]
     return X, y
 
-# use scored occ drift detection, analyze one element at a time
-
-def_classifier = GridSearchCV(RandomForestClassifier(),
+def_classifier = GridSearchCV(RandomForestClassifier(random_state=SEED),
                               {'n_estimators': [5, 10, 20, 50, 100],
                                'max_depth': [10, 20, None],
                                'max_features': ['sqrt', None]},
@@ -55,68 +64,138 @@ def scored_drift_train(X, y,
                        keep_fraction=defaults['outlier_freq_threshold'],
                        c=defaults['c'],
                        classifier = defaults['classifier'],
+                       test = mannwhitneyu,
                        use_score=True,
                        verbose=False):
     """Run the scored-based one-class drift detection experiment."""
 
     # pylint: disable=invalid-name
-    drift_detector = SVOCC(c=c)
+    cov_drift_detector = SVOCC(c=c, k=GaussianKernel(0.1))
+    dis_drift_detector = SVOCC(c=c, k=GaussianKernel(0.1))
+    lab_drift_detector = SVOCC(c=c, k=GaussianKernel(0.1))
 
     X_train = X.iloc[:window_size].values
     y_train = y.iloc[:window_size].values
+
     X_train, y_train = clean_dataset(X_train, y_train)
-    drift_detector.fit(X_train)
+    y_train_expanded = np.expand_dims(y_train, axis=1)
+    Xy_train = np.hstack([X_train, y_train_expanded])
+
+    cov_drift_detector.fit(X_train)
+    dis_drift_detector.fit(Xy_train)
+    lab_drift_detector.fit(y_train_expanded)
     classifier.fit(X_train, y_train)
-    nodrift_sample = drift_detector.predict(X_train, scored=use_score)
-    curr_sample = nodrift_sample.copy()
-    num_detections = 0
+
+    cov_nodrift_sample = cov_drift_detector.predict(X_train, scored=use_score)
+    cov_curr_sample = cov_nodrift_sample.copy()
+    dis_nodrift_sample = dis_drift_detector.predict(Xy_train,
+                                                    scored=use_score)
+    dis_curr_sample = dis_nodrift_sample.copy()
+    lab_nodrift_sample = lab_drift_detector.predict(y_train_expanded,
+                                                    scored=use_score)
+    lab_curr_sample = lab_nodrift_sample.copy()
+
+    cov_detections = dis_detections = lab_detections = 0
     predictions = []
     targets = []
+    cov_p = []
+    dis_p = []
+    lab_p = []
 
     X_curr = X_train
     y_curr = y_train
+    y_curr_expanded = np.expand_dims(y_curr, axis=1)
+    Xy_curr = np.hstack([X_curr, y_curr_expanded])
 
-    for x_new, y_new in zip(X.iloc[window_size:].values,
-                            y.iloc[window_size:].values):
+    stream_len = len(y.iloc[window_size:])
+    for x_new, y_new in tqdm(zip(X.iloc[window_size:].values,
+                                 y.iloc[window_size:].values),
+                             total=stream_len):
         predictions.append(classifier.predict([x_new]))
         targets.append(y_new)
+        xy_new = np.hstack([x_new, [y_new]])
         if len(X_curr) < window_size:
             X_curr = np.vstack([X_curr, [x_new]])
             y_curr = np.hstack([y_curr, [y_new]])
-            curr_sample = np.hstack([curr_sample,
-                                    drift_detector.predict([x_new],
+            y_curr_expanded = np.expand_dims(y_curr, axis=1)
+            Xy_curr = np.hstack([X_curr, y_curr_expanded])
+
+            cov_curr_sample = np.hstack([cov_curr_sample,
+                                cov_drift_detector.predict([x_new],
+                                                           scored=use_score)])
+            dis_curr_sample = np.hstack([dis_curr_sample,
+                                dis_drift_detector.predict([xy_new],
+                                                           scored=use_score)])
+            lab_curr_sample = np.hstack([lab_curr_sample,
+                                lab_drift_detector.predict([y_curr],
                                                            scored=use_score)])
         else:
-            p_value = mannwhitneyu(curr_sample, nodrift_sample).pvalue
-            if p_value < p_value_threshold:
-                perc = len(predictions) / (len(X) - window_size) * 100
-                msg = f'{perc:.1f}% complete, '
-                acc = metrics.accuracy_score(targets, predictions)
-                msg += f' accuracy {acc:.3f} '
-                msg += f' drift detected (p-value {p_value:.3f})'
-                if verbose:
-                    print(msg)
-                num_detections += 1
+            drift_detected = False
+
+            cov_p_value = test(cov_curr_sample, cov_nodrift_sample).pvalue
+            cov_p.append(cov_p_value)
+            if cov_p_value < p_value_threshold:
+                cov_detections += 1
+                drift_detected = True
+
+            dis_p_value = test(dis_curr_sample, dis_nodrift_sample).pvalue
+            dis_p.append(dis_p_value)
+            if dis_p_value < p_value_threshold:
+                dis_detections += 1
+                drift_detected = True
+
+            lab_p_value = test(lab_curr_sample, lab_nodrift_sample).pvalue
+            lab_p.append(lab_p_value)
+            if lab_p_value < p_value_threshold:
+                lab_detections += 1
+                drift_detected = True
+
+            if drift_detected:
                 new_size = int(window_size * (1 - keep_fraction))
                 X_curr = np.vstack([X_curr[new_size:], [x_new]])
                 y_curr = np.hstack([y_curr[new_size:], [y_new]])
                 X_curr, y_curr = clean_dataset(X_curr, y_curr)
-                drift_detector.fit(X_curr)
+                y_curr_expanded = np.expand_dims(y_curr, axis=1)
+                Xy_curr = np.hstack([X_curr, y_curr_expanded])
+
+                cov_drift_detector.fit(X_curr)
+                dis_drift_detector.fit(Xy_curr)
+                lab_drift_detector.fit(y_curr_expanded)
+
                 classifier.fit(X_curr, y_curr)
-                nodrift_sample = drift_detector.predict(X_curr,
+
+                cov_nodrift_sample = cov_drift_detector.predict(X_curr,
                                                         scored=use_score)
+                dis_nodrift_sample = dis_drift_detector.predict(Xy_curr,
+                                                    scored=use_score)
+                lab_nodrift_sample = lab_drift_detector.predict(y_curr_expanded,
+                                                    scored=use_score)
             else:
                 X_curr = np.vstack([X_curr[1:], [x_new]])
                 y_curr = np.hstack([y_curr[1:], [y_new]])
-                curr_sample = np.hstack([curr_sample[1:],
-                                        drift_detector.predict([x_new],
+                Xy_curr = np.vstack([Xy_curr[1:], [xy_new]])
+
+                cov_curr_sample = np.hstack([cov_curr_sample[1:],
+                                        cov_drift_detector.predict([x_new],
+                                                            scored=use_score)])
+                dis_curr_sample = np.hstack([dis_curr_sample[1:],
+                                        dis_drift_detector.predict([xy_new],
+                                                            scored=use_score)])
+                lab_curr_sample = np.hstack([lab_curr_sample[1:],
+                                        lab_drift_detector.predict([[y_new]],
                                                             scored=use_score)])
 
     acc = metrics.accuracy_score(targets, predictions)
     if verbose:
-        print(f'Detected {num_detections} drifts.')
+        print('Detected:')
+        print(f'{cov_detections} covariate drifts.')
+        print(f'{dis_detections} distribution drifts.')
+        print(f'{lab_detections} label drifts.')
         print(f'Final accuracy {acc:.3f} ')
-    return {'num_drift': num_detections, 'accuracy': acc}
+    return {'cov_detections': cov_detections,
+            'dis_detections': dis_detections,
+            'lab_detections': lab_detections,
+            'accuracy': acc}
 
 # pylint: disable-next=invalid-name
 def hybrid_drift_train(X, y,
@@ -134,6 +213,7 @@ def hybrid_drift_train(X, y,
                        keep_fraction=keep_fraction,
                        c=c,
                        classifier=classifier,
+                       test=ztest,
                        use_score=False,
                        verbose=verbose)
 
@@ -200,34 +280,24 @@ def binary_drift_train(X, y,
     if verbose:
         print(f'Detected {num_detections} drifts.')
         print(f'Final accuracy {acc:.3f} ')
-    return {'num_drift': num_detections, 'accuracy': acc}
+    return {'cov_detections': num_detections,
+            'dis_detections': 0,
+            'lab_detections': 0,
+            'accuracy': acc}
 
 # pylint: disable-next=invalid-name
 def evaluate_method(dataset_name, X, y, method_name, method):
     """Evaluate the performance of a specific drift detection method
-    on a dataset for different seeds of the pseudorandom generator."""
+    on a dataset."""
 
-    results = []
-
-    for seed in tqdm(SEEDS):
-        set_random_seed(seed)
-        classifier = GridSearchCV(RandomForestClassifier(random_state=seed),
-                                {'n_estimators': [5, 10, 20, 50, 100],
-                                'max_depth': [10, 20, None],
-                                'max_features': ['sqrt', None]},
-                                cv=2,
-                                n_jobs=-1)
-        results.append(method(X, y, classifier=classifier))
-
-    num_drift = [r['num_drift'] for r in results]
-    acc = [r['accuracy'] for r in results]
+    result = method(X, y)
 
     result = {'dataset': dataset_name,
               'method': method_name,
-              'drift_detected_mean': np.mean(num_drift),
-              'drift_detected_std': np.std(num_drift),
-              'accuracy_mean':np.mean(acc),
-              'accuracy_std':np.std(acc)}
+              'cov_drift_detected': result['cov_detections'],
+              'dis_drift_detected': result['dis_detections'],
+              'lab_drift_detected': result['lab_detections'],
+              'accuracy': result['accuracy']}
 
     return result
 
@@ -246,18 +316,6 @@ def analyze_dataset(data_name, data_path):
             for method_name, method in tqdm(zip(method_names, methods),
                                             total=len(methods))]
 
-# def run_experiment(path, name):
-#     """Run a batch of experiments for all datasets in a directory."""
-
-#     result = []
-#     for file in tqdm(os.listdir(path)):
-#         data_name = file[:-4]
-#         data_path = path + file
-#         result.extend(analyze_dataset(data_name, data_path))
-
-#     with open(f'result-{name}.json', 'w', encoding='utf-8') as f:
-#         json.dump(result, f)
-
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='process arguments')
@@ -268,6 +326,8 @@ if __name__ == '__main__':
     dataset = args.dataset
     output_dir = Path(args.output)
 
+    set_random_seed(SEED)
+
     name = dataset[dataset.rfind('/')+1:-4]
 
     output_file = output_dir / Path(name + '.json')
@@ -276,4 +336,3 @@ if __name__ == '__main__':
     else:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(analyze_dataset(name, dataset), f)
-

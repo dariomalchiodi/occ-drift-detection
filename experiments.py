@@ -195,7 +195,10 @@ def scored_drift_train(X, y, pbar,
     return {'cov_detections': cov_detections,
             'dis_detections': dis_detections,
             'lab_detections': lab_detections,
-            'accuracy': acc}
+            'accuracy': acc,
+            'cov_p_values': cov_p,
+            'dis_p_values': dis_p,
+            'lab_p_values': lab_p}
 
 # pylint: disable-next=invalid-name
 def hybrid_drift_train(X, y, pbar,
@@ -284,7 +287,10 @@ def binary_drift_train(X, y, pbar,
     return {'cov_detections': num_detections,
             'dis_detections': 0,
             'lab_detections': 0,
-            'accuracy': acc}
+            'accuracy': acc,
+            'cov_p_values': [],
+            'dis_p_values': [],
+            'lab_p_values': []}
 
 # pylint: disable-next=invalid-name
 def evaluate_method(dataset_name, X, y, method_name, method, pbar):
@@ -298,6 +304,9 @@ def evaluate_method(dataset_name, X, y, method_name, method, pbar):
               'cov_drift_detected': result['cov_detections'],
               'dis_drift_detected': result['dis_detections'],
               'lab_drift_detected': result['lab_detections'],
+              'cov_p_values': result['cov_p_values'],
+              'dis_p_values': result['dis_p_values'],
+              'lab_p_values': result['lab_p_values'],
               'accuracy': result['accuracy']}
 
     return result

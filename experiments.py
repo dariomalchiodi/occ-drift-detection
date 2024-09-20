@@ -20,6 +20,23 @@ from sklearn.model_selection import GridSearchCV
 from svocc import SVOCC
 from svocc.kernel import GaussianKernel
 
+# TODO
+# - conteggiare uno solo tra i tre tipi di drift quando vengono rilevati
+#   assieme in una finestra
+# - verificare come vengono salvati i p-value, perché in covtype sembra che
+#   ci sia una differenza nel numero di label drift ma i conteggi sembrano
+#   uguali
+# - pensare dei dataset artificiali che inducono un drift specifico (sia in
+#   termini di covariate, label e congiunto, sia nella modalità subitanea,
+#   graduale, ecc.) valutando anche se questo non sia già stato fatto nei
+#   dataset sintetici.
+# - nei grafici del p-value indicare con delle barre i momenti nei quali
+#   sappiamo che c'è stato un drift (sicuramente per i dati sintetici, forse
+#   anche per quelli reali).
+# - valutare se è veramente necessario ragionare sul drift di x e y insieme.
+# - usare il test Z per valutare il drift delle etichette nei casi di
+#   classificazione binaria.
+
 
 SEED = 3759914
 TestResult = namedtuple('TestResult', ['stat', 'pvalue'])

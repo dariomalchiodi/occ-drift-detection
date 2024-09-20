@@ -71,7 +71,7 @@ class SVOCC(BaseEstimator, RegressorMixin):
         # pylint: disable=attribute-defined-outside-init
         self.r2_05_ = np.mean(chi_sq_radius)
 
-        self.m_ = np.log(2) / self.r2_05_
+        self.m_ = np.log(2) / (self.r2_05_ + 1e-9)
         self.x_to_r2_ = lambda X: np.array([x_to_r2(x) for x in X])
         self.x_to_mu_ = lambda X: np.exp(-1 * self.m_ * self.x_to_r2_(X))
 

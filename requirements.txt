@@ -23,13 +23,21 @@ numpy==2.3.4
     #   contourpy
     #   matplotlib
     #   pandas
+    #   patsy
     #   river
     #   scikit-learn
     #   scipy
+    #   statsmodels
 packaging==25.0
-    # via matplotlib
+    # via
+    #   matplotlib
+    #   statsmodels
 pandas==2.3.3
-    # via river
+    # via
+    #   river
+    #   statsmodels
+patsy==1.0.2
+    # via statsmodels
 pillow==12.0.0
     # via matplotlib
 pyparsing==3.2.5
@@ -48,8 +56,11 @@ scipy==1.16.2
     # via
     #   river
     #   scikit-learn
+    #   statsmodels
 six==1.17.0
     # via python-dateutil
+statsmodels==0.14.5
+    # via -r requirements.in
 threadpoolctl==3.6.0
     # via scikit-learn
 tzdata==2025.2

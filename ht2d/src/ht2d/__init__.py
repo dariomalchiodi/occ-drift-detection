@@ -13,7 +13,6 @@ from .detectors import (
 from .models import (
     to_dict,
     to_array,
-    window_accuracy,
     BaseModelAdapter,
     HoeffdingTreeClassifier,
 )
@@ -28,7 +27,6 @@ __all__ = [
     "ZTestDriftDetector",
     "to_dict",
     "to_array",
-    "window_accuracy",
     "BaseModelAdapter",
     "HoeffdingTreeClassifier",
 ]

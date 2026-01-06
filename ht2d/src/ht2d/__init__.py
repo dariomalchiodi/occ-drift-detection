@@ -13,8 +13,17 @@ from .detectors import (
 from .models import (
     to_dict,
     to_array,
-    BaseModelAdapter,
+    BaseModel,
+    ModelAdapter,
     HoeffdingTreeClassifier,
+    GaussianNBClassifier,
+    PAClassifier,
+    SklearnBatchAdapter,
+    SklearnLinearSVCClassifier,
+    SklearnRBFSVCClassifier,
+    AdaptiveRandomForestClassifier,
+    LogisticRegressionClassifier,
+    SklearnMLPClassifier,
 )
 
 __all__ = [
@@ -27,6 +36,15 @@ __all__ = [
     "ZTestDriftDetector",
     "to_dict",
     "to_array",
-    "BaseModelAdapter",
+    "BaseModel",
+    "ModelAdapter",
     "HoeffdingTreeClassifier",
+    "GaussianNBClassifier",
+    "PAClassifier",
+    "sklearnBatchAdapter",
+    "SklearnLinearSVCClassifier",
+    "SklearnRBFSVCClassifier",
+    "AdaptiveRandomForestClassifier",
+    "LogisticRegressionClassifier",
+    "sklearnMLPClassifier",
 ]
